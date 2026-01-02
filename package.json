@@ -1,0 +1,37 @@
+{
+  "name": "pino-sqlite",
+  "version": "1.0.0",
+  "description": "A Pino transport that stores logs to SQLite for queryable log storage",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": ["pino", "sqlite", "logging", "transport"],
+  "author": "",
+  "license": "ISC",
+  "peerDependencies": {
+    "pino": ">=8.0.0"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.5.0",
+    "pino-abstract-transport": "^3.0.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^25.0.3",
+    "pino": "^10.1.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.0.16"
+  }
+}
