@@ -1,5 +1,67 @@
 import Database from 'better-sqlite3'
+import { levelToString } from './db.js'
 import type { ComparisonOperator, LogEntry, ParsedLogEntry, PinoLog } from './types.js'
+
+// Helper to safely escape SQL identifiers using SQLite's printf
+function escapeIdentifier(db: Database.Database, identifier: string): string {
+  const result = db.prepare("SELECT printf('%w', ?)").pluck().get(identifier) as string
+  return `"${result}"`
+}
+
+/**
+ * Convert level input (string name, numeric value, or string format) to storage format
+ */
+function normalizeLevel(level: string | number): string {
+  if (typeof level === 'number') {
+    return levelToString(level)
+  }
+
+  // If it's already in the format "50-error", pass it through
+  if (/^\d+-/.test(level)) {
+    return level
+  }
+
+  // Map string names to numeric values, then convert
+  const nameMap: Record<string, number> = {
+    trace: 10,
+    debug: 20,
+    info: 30,
+    warn: 40,
+    error: 50,
+    fatal: 60
+  }
+
+  const numericLevel = nameMap[level.toLowerCase()]
+  if (numericLevel === undefined) {
+    throw new Error(`Invalid level: ${level}. Use trace, debug, info, warn, error, fatal, or a numeric value`)
+  }
+
+  return levelToString(numericLevel)
+}
+
+// Helper to parse human-readable duration strings (e.g., '60s', '5m', '1h', '2d', '1w', '3mo', '1y')
+function parseDuration(duration: string): number {
+  const match = duration.match(/^(\d+)(ms|s|m|h|d|w|mo|y)$/)
+  if (!match) {
+    throw new Error(`Invalid duration format: ${duration}. Use format like 1h, 30m, 1d, 1w, 3mo, 1y`)
+  }
+
+  const value = parseInt(match[1], 10)
+  const unit = match[2]
+
+  const multipliers: Record<string, number> = {
+    ms: 1,
+    s: 1000,
+    m: 60 * 1000,
+    h: 60 * 60 * 1000,
+    d: 24 * 60 * 60 * 1000,
+    w: 7 * 24 * 60 * 60 * 1000,
+    mo: 30 * 24 * 60 * 60 * 1000, // approximate: 30 days
+    y: 365 * 24 * 60 * 60 * 1000 // approximate: 365 days
+  }
+
+  return value * multipliers[unit]
+}
 
 export class LogQuery {
   private db: Database.Database
@@ -26,12 +88,16 @@ export class LogQuery {
 
   /**
    * Filter by log level
-   * @param level - Pino level (10=trace, 20=debug, 30=info, 40=warn, 50=error, 60=fatal)
+   * @param level - Can be:
+   *   - String name: 'trace', 'debug', 'info', 'warn', 'error', 'fatal'
+   *   - Pino numeric value: 10, 20, 30, 40, 50, 60
+   *   - String format: '10-trace', '50-error', etc. (pass through)
    * @param operator - Comparison operator (default: '>=')
    */
-  level(level: number, operator: ComparisonOperator = '>='): this {
+  level(level: string | number, operator: ComparisonOperator = '>='): this {
+    const levelStr = normalizeLevel(level)
     this.conditions.push(`level ${operator} ?`)
-    this.params.push(level)
+    this.params.push(levelStr)
     return this
   }
 
@@ -51,9 +117,26 @@ export class LogQuery {
   }
 
   /**
-   * Filter logs from the last N milliseconds
+   * Filter logs from the last N milliseconds, duration string, or since a specific date
+   * @param value - Can be:
+   *   - number: milliseconds (e.g., 60000)
+   *   - string: human-readable duration (e.g., '60s', '5m', '1h', '2d', '1w', '3mo', '1y')
+   *   - Date: filter logs since this date
    */
-  since(ms: number): this {
+  since(value: Date | number | string): this {
+    let ms: number
+
+    if (value instanceof Date) {
+      // Date: calculate milliseconds from now back to that date
+      ms = Date.now() - value.getTime()
+    } else if (typeof value === 'string') {
+      // String: parse duration (e.g., '60s', '1h')
+      ms = parseDuration(value)
+    } else {
+      // Number: use as-is (milliseconds)
+      ms = value
+    }
+
     return this.timeRange(Date.now() - ms)
   }
 
@@ -76,7 +159,8 @@ export class LogQuery {
       this.conditions.push(`json_extract(data, ?) ${operator} ?`)
       this.params.push(pathOrColumn, value)
     } else {
-      this.conditions.push(`${pathOrColumn} ${operator} ?`)
+      const safeColumn = escapeIdentifier(this.db, pathOrColumn)
+      this.conditions.push(`${safeColumn} ${operator} ?`)
       this.params.push(value)
     }
     return this
@@ -111,7 +195,8 @@ export class LogQuery {
    * Set order by clause
    */
   orderBy(column: string, direction: 'ASC' | 'DESC' = 'DESC'): this {
-    this.orderByClause = `${column} ${direction}`
+    const safeColumn = escapeIdentifier(this.db, column)
+    this.orderByClause = `${safeColumn} ${direction}`
     return this
   }
 
@@ -152,7 +237,8 @@ export class LogQuery {
    * Get distinct values for a column
    */
   distinct(column: string): string[] {
-    const sql = `SELECT DISTINCT ${column} FROM ${this.tableName} WHERE ${column} IS NOT NULL`
+    const safeColumn = escapeIdentifier(this.db, column)
+    const sql = `SELECT DISTINCT ${safeColumn} FROM ${this.tableName} WHERE ${safeColumn} IS NOT NULL`
     const stmt = this.db.prepare(sql)
     const rows = stmt.all() as Array<Record<string, string>>
     return rows.map((row) => row[column])
