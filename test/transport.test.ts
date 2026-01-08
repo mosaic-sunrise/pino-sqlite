@@ -1,32 +1,18 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
-import { unlink, access } from 'node:fs/promises'
-import { Writable } from 'node:stream'
 import { createQueryHelper } from '../src/query.js'
 import { initDatabase, insertBatch, closeDatabase } from '../src/db.js'
+import { cleanup } from './test-utils.js'
 import type { PinoLog } from '../src/types.js'
 
 const TEST_DB = '/tmp/pino-sqlite-test.db'
 
-async function fileExists(path: string): Promise<boolean> {
-  try {
-    await access(path)
-    return true
-  } catch {
-    return false
-  }
-}
-
-async function cleanup(): Promise<void> {
-  for (const file of [TEST_DB, `${TEST_DB}-wal`, `${TEST_DB}-shm`]) {
-    if (await fileExists(file)) {
-      await unlink(file)
-    }
-  }
+async function runCleanup(): Promise<void> {
+  await cleanup(TEST_DB)
 }
 
 describe('pino-sqlite transport', () => {
-  beforeEach(cleanup)
-  afterEach(cleanup)
+  beforeEach(runCleanup)
+  afterEach(runCleanup)
 
   it('should write logs to SQLite database', () => {
     const db = initDatabase({ dbPath: TEST_DB })
@@ -44,9 +30,9 @@ describe('pino-sqlite transport', () => {
 
     expect(results).toHaveLength(2)
     expect(results[0].msg).toBe('Error occurred')
-    expect(results[0].level).toBe(50)
+    expect(results[0].level).toBe('50-error')
     expect(results[1].msg).toBe('Test message')
-    expect(results[1].level).toBe(30)
+    expect(results[1].level).toBe('30-info')
     expect(results[1].data.userId).toBe(123)
 
     query.close()

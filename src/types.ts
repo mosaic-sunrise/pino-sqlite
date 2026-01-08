@@ -28,7 +28,7 @@ export interface PinoLog {
 export interface LogEntry {
   id: number
   time: number
-  level: number
+  level: string
   msg: string | null
   name: string | null
   data: string

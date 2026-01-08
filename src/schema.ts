@@ -9,7 +9,7 @@ export function createSchema(
     CREATE TABLE IF NOT EXISTS ${tableName} (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       time INTEGER NOT NULL,
-      level INTEGER NOT NULL,
+      level TEXT NOT NULL,
       msg TEXT,
       name TEXT,
       data JSON NOT NULL,
